@@ -1,6 +1,7 @@
 import importlib.util
 from collections.abc import Callable
 from pathlib import Path
+import re
 from typing import Any
 
 from fastapi import HTTPException
@@ -12,6 +13,7 @@ from app.schemas.plugin import EventPluginResponse
 PluginHandler = Callable[[EventModel, dict[str, Any]], dict[str, Any]]
 PLUGINS_DIR = Path(__file__).resolve().parents[1] / "plugins"
 PLUGIN_ENTRYPOINT = "generate_task"
+PLUGIN_NAME_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
 def _default_plugin(event: EventModel, additional_data: dict[str, Any]) -> dict[str, Any]:
@@ -23,12 +25,19 @@ def _default_plugin(event: EventModel, additional_data: dict[str, Any]) -> dict[
     }
 
 def _normalize_plugin_name(plugin_name: str) -> str:
-    return plugin_name.strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = plugin_name.strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized or not PLUGIN_NAME_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="Invalid plugin name format.")
+    return normalized
 
 
 def _load_plugin_handler(plugin_name: str) -> PluginHandler | None:
     normalized_name = _normalize_plugin_name(plugin_name)
-    plugin_path = PLUGINS_DIR / f"{normalized_name}.py"
+    plugin_path = (PLUGINS_DIR / f"{normalized_name}.py").resolve()
+    plugins_dir_resolved = PLUGINS_DIR.resolve()
+    if plugin_path.parent != plugins_dir_resolved:
+        raise HTTPException(status_code=400, detail="Invalid plugin path.")
+
     if not plugin_path.is_file():
         return None
 
@@ -37,8 +46,13 @@ def _load_plugin_handler(plugin_name: str) -> PluginHandler | None:
     if spec is None or spec.loader is None:
         raise HTTPException(status_code=500, detail=f"Failed to load plugin '{plugin_name}'.")
 
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize plugin '{plugin_name}'.")
 
     handler = getattr(module, PLUGIN_ENTRYPOINT, None)
     if not callable(handler):
@@ -65,7 +79,12 @@ def run_event_plugin(event_id: int, additional_data: dict[str, Any] | None = Non
         raise HTTPException(status_code=400, detail="Event has no plugin configured.")
 
     handler = _load_plugin_handler(event.plugin) or _default_plugin
-    task = handler(event, additional_data or {})
+    try:
+        task = handler(event, additional_data or {})
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail=f"Plugin '{event.plugin}' execution failed.")
 
     return EventPluginResponse(
         event_id=event.id,
