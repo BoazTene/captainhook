@@ -36,6 +36,7 @@ interface CalendarViewProps {
   onPreviousMonth: () => void;
   onNextMonth: () => void;
   onSelectDate: (date: Date) => void;
+  onDateContextMenu?: (payload: { date: Date; mouseX: number; mouseY: number }) => void;
 }
 
 function isSameDay(left: Date, right: Date) {
@@ -53,6 +54,7 @@ export function CalendarView({
   onPreviousMonth,
   onNextMonth,
   onSelectDate,
+  onDateContextMenu,
 }: CalendarViewProps) {
   const cells = getCalendarCells(displayMonth);
 
@@ -98,6 +100,18 @@ export function CalendarView({
                 if (cellDate) {
                   onSelectDate(cellDate);
                 }
+              }}
+              onContextMenu={(event) => {
+                if (!cellDate || !onDateContextMenu) {
+                  return;
+                }
+
+                event.preventDefault();
+                onDateContextMenu({
+                  date: cellDate,
+                  mouseX: event.clientX,
+                  mouseY: event.clientY,
+                });
               }}
               sx={{
                 aspectRatio: "1 / 1",
