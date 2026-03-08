@@ -21,7 +21,7 @@ export function TaskList({ tasks, completedTaskIds, onToggleDone, onOpenDetails 
             <Stack spacing={1}>
               <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
                 <Chip label={`${task.plugin} plugin`} size="small" color="secondary" />
-                <Chip label={task.type} size="small" variant="outlined" />
+                {task.type !== "none" && <Chip label={task.type} size="small" variant="outlined" />}
                 {isDone && <Chip label="Done" size="small" color="success" />}
               </Stack>
               <Typography variant="subtitle1" fontWeight={600}>
@@ -59,7 +59,7 @@ export function TaskList({ tasks, completedTaskIds, onToggleDone, onOpenDetails 
                   startIcon={<LaunchRoundedIcon />}
                   sx={{ alignSelf: "flex-start" }}
                 >
-                  View full session
+                  Further details
                 </Button>
               )}
             </Stack>
