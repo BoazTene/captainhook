@@ -92,3 +92,21 @@ def run_event_plugin(event_id: int, additional_data: dict[str, Any] | None = Non
         plugin=event.plugin,
         task=task,
     )
+
+
+def list_available_plugins() -> list[str]:
+    plugins_dir_resolved = PLUGINS_DIR.resolve()
+    plugin_names: list[str] = []
+
+    for plugin_path in plugins_dir_resolved.glob("*.py"):
+        if not plugin_path.is_file() or plugin_path.name == "__init__.py":
+            continue
+
+        plugin_name = plugin_path.stem
+        if not PLUGIN_NAME_PATTERN.fullmatch(plugin_name):
+            continue
+
+        plugin_names.append(plugin_name)
+
+    plugin_names.sort()
+    return plugin_names
