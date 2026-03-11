@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TodayTask } from "@/lib/today-tasks";
 import { mapEventsToTasks, type ApiEvent } from "@/lib/events";
 import { CalendarView } from "./CalendarView";
+import { NotificationControl } from "./NotificationControl";
 import { TaskList } from "./TaskList";
 
 type EventRepeat = "none" | "daily" | "weekly" | "monthly" | "yearly";
@@ -57,6 +58,12 @@ interface ModalDetails {
   fullSession: string[];
 }
 
+interface DateMenuState {
+  mouseX: number;
+  mouseY: number;
+  date: Date;
+}
+
 function toDateTimeLocalValue(date: Date): string {
   const localDate = new Date(date);
   const year = localDate.getFullYear();
@@ -78,6 +85,13 @@ function toLocalDateTimeQueryValue(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}T12:00:00`;
+}
+
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function asStringArray(value: unknown): string[] {
@@ -131,12 +145,18 @@ export function MissionDashboard() {
   const [openTask, setOpenTask] = useState<TodayTask | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [tasks, setTasks] = useState<TodayTask[]>([]);
+  const [events, setEvents] = useState<ApiEvent[]>([]);
+  const [monthEventDateKeys, setMonthEventDateKeys] = useState<Set<string>>(new Set());
   const [tasksLoading, setTasksLoading] = useState<boolean>(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; date: Date } | null>(null);
+  const [contextMenu, setContextMenu] = useState<DateMenuState | null>(null);
   const [isCreateEventOpen, setIsCreateEventOpen] = useState<boolean>(false);
   const [isCreatingEvent, setIsCreatingEvent] = useState<boolean>(false);
   const [createEventError, setCreateEventError] = useState<string | null>(null);
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
+  const [isDayEventsOpen, setIsDayEventsOpen] = useState<boolean>(false);
+  const [deletingEventId, setDeletingEventId] = useState<number | null>(null);
+  const [deleteEventError, setDeleteEventError] = useState<string | null>(null);
   const [availablePlugins, setAvailablePlugins] = useState<string[]>([]);
   const [modalDetails, setModalDetails] = useState<ModalDetails | null>(null);
   const [modalDetailsLoading, setModalDetailsLoading] = useState<boolean>(false);
@@ -150,28 +170,7 @@ export function MissionDashboard() {
   });
   const [calendarHeight, setCalendarHeight] = useState<number>(0);
   const calendarContainerRef = useRef<HTMLDivElement | null>(null);
-  const [completedByDate, setCompletedByDate] = useState<Record<string, string[]>>(() => {
-    if (typeof window === "undefined") {
-      return {};
-    }
-
-    const raw = window.localStorage.getItem("captainhook-completed-by-date");
-    if (!raw) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(raw) as Record<string, string[]>;
-    } catch {
-      return {};
-    }
-  });
-
-  const selectedDateKey = useMemo(() => selectedDate.toISOString().slice(0, 10), [selectedDate]);
-  const completedTaskIds = useMemo(
-    () => new Set(completedByDate[selectedDateKey] ?? []),
-    [completedByDate, selectedDateKey],
-  );
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
 
   const theme = useMemo(
     () =>
@@ -210,22 +209,38 @@ export function MissionDashboard() {
     );
   };
 
-  const toggleTaskDone = (taskId: string) => {
-    setCompletedByDate((prev) => {
-      const current = new Set(prev[selectedDateKey] ?? []);
-      if (current.has(taskId)) {
-        current.delete(taskId);
-      } else {
-        current.add(taskId);
+  const toggleTaskDone = async (taskId: string) => {
+    try {
+      setTasksError(null);
+      const isCompleted = completedTaskIds.has(taskId);
+      const response = await fetch(`/api/events/${taskId}/completion`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ completed: !isCompleted }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update event completion: ${response.status}`);
       }
 
-      return { ...prev, [selectedDateKey]: [...current] };
-    });
+      setCompletedTaskIds((prev) => {
+        const next = new Set(prev);
+        if (isCompleted) {
+          next.delete(taskId);
+        } else {
+          next.add(taskId);
+        }
+        return next;
+      });
+    } catch (error) {
+      setTasksError(error instanceof Error ? error.message : "Failed to update event completion.");
+    }
   };
 
   const openCreateEventModal = (date: Date) => {
     const baseDate = withDefaultEventTime(date);
     setCreateEventError(null);
+    setEditingEventId(null);
     setCreateEventForm({
       name: "",
       description: "",
@@ -236,9 +251,18 @@ export function MissionDashboard() {
     setIsCreateEventOpen(true);
   };
 
-  useEffect(() => {
-    window.localStorage.setItem("captainhook-completed-by-date", JSON.stringify(completedByDate));
-  }, [completedByDate]);
+  const openEditEventModal = (event: ApiEvent) => {
+    setCreateEventError(null);
+    setEditingEventId(event.id);
+    setCreateEventForm({
+      name: event.name,
+      description: event.description,
+      plugin: event.plugin ?? "none",
+      date: toDateTimeLocalValue(new Date(event.date)),
+      repeat: event.repeat,
+    });
+    setIsCreateEventOpen(true);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -287,13 +311,17 @@ export function MissionDashboard() {
         }
 
         const events = (await response.json()) as ApiEvent[];
+        setEvents(events);
+        setCompletedTaskIds(new Set(events.filter((event) => event.completed_at !== null).map((event) => String(event.id))));
         setTasks(mapEventsToTasks(events));
       } catch (error) {
         if (controller.signal.aborted) {
           return;
         }
 
+        setEvents([]);
         setTasks([]);
+        setCompletedTaskIds(new Set());
         setTasksError(error instanceof Error ? error.message : "Failed to load events.");
       } finally {
         if (!controller.signal.aborted) {
@@ -308,7 +336,50 @@ export function MissionDashboard() {
   }, [selectedDate, refreshKey]);
 
   useEffect(() => {
+    const controller = new AbortController();
+
+    const loadMonthEvents = async () => {
+      try {
+        const firstDayOfMonth = new Date(displayMonth.getFullYear(), displayMonth.getMonth(), 1);
+        const lastDayOfMonth = new Date(displayMonth.getFullYear(), displayMonth.getMonth() + 1, 0);
+        const params = new URLSearchParams({
+          date: toLocalDateTimeQueryValue(firstDayOfMonth),
+          operator: "between",
+          date_to: toLocalDateTimeQueryValue(lastDayOfMonth),
+        });
+        const response = await fetch(`/api/events?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load month events: ${response.status}`);
+        }
+
+        const monthEvents = (await response.json()) as ApiEvent[];
+        setMonthEventDateKeys(new Set(monthEvents.map((event) => toLocalDateKey(new Date(event.date)))));
+      } catch {
+        if (!controller.signal.aborted) {
+          setMonthEventDateKeys(new Set());
+        }
+      }
+    };
+
+    void loadMonthEvents();
+
+    return () => controller.abort();
+  }, [displayMonth, refreshKey]);
+
+  useEffect(() => {
     if (!openTask) {
+      setModalDetails(null);
+      setModalDetailsLoading(false);
+      setModalDetailsError(null);
+      return;
+    }
+
+    const event = events.find((item) => String(item.id) === openTask.id);
+    if (!event?.plugin) {
       setModalDetails(null);
       setModalDetailsLoading(false);
       setModalDetailsError(null);
@@ -350,7 +421,7 @@ export function MissionDashboard() {
     void loadPluginDetails();
 
     return () => controller.abort();
-  }, [openTask]);
+  }, [events, openTask]);
 
   useEffect(() => {
     const node = calendarContainerRef.current;
@@ -390,7 +461,18 @@ export function MissionDashboard() {
     closeDateContextMenu();
   };
 
-  const handleCreateEvent = async () => {
+  const handleOpenEditEventsFromMenu = () => {
+    if (!contextMenu) {
+      return;
+    }
+
+    setSelectedDate(contextMenu.date);
+    setDisplayMonth(new Date(contextMenu.date.getFullYear(), contextMenu.date.getMonth(), 1));
+    setIsDayEventsOpen(true);
+    closeDateContextMenu();
+  };
+
+  const handleSaveEvent = async () => {
     setIsCreatingEvent(true);
     setCreateEventError(null);
 
@@ -403,27 +485,67 @@ export function MissionDashboard() {
         repeat: createEventForm.repeat,
       };
 
-      const response = await fetch("/api/events", {
-        method: "POST",
+      const response = await fetch(editingEventId === null ? "/api/events" : `/api/events/${editingEventId}`, {
+        method: editingEventId === null ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to create event: ${response.status}`);
+        throw new Error(`Failed to ${editingEventId === null ? "create" : "update"} event: ${response.status}`);
       }
 
       const createdDate = new Date(createEventForm.date);
       setSelectedDate(createdDate);
       setDisplayMonth(new Date(createdDate.getFullYear(), createdDate.getMonth(), 1));
       setIsCreateEventOpen(false);
+      setEditingEventId(null);
       setRefreshKey((value) => value + 1);
     } catch (error) {
-      setCreateEventError(error instanceof Error ? error.message : "Failed to create event.");
+      setCreateEventError(error instanceof Error ? error.message : `Failed to ${editingEventId === null ? "create" : "update"} event.`);
     } finally {
       setIsCreatingEvent(false);
     }
   };
+
+  const handleDeleteEvent = async (eventId: number) => {
+    setDeletingEventId(eventId);
+    setDeleteEventError(null);
+
+    try {
+      const response = await fetch(`/api/events/${eventId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete event: ${response.status}`);
+      }
+
+      if (editingEventId === eventId) {
+        setIsCreateEventOpen(false);
+        setEditingEventId(null);
+      }
+
+      if (openTask?.id === String(eventId)) {
+        setOpenTask(null);
+      }
+
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setDeleteEventError(error instanceof Error ? error.message : "Failed to delete event.");
+    } finally {
+      setDeletingEventId(null);
+    }
+  };
+
+  const selectedEvent = useMemo(
+    () => (openTask ? events.find((event) => String(event.id) === openTask.id) ?? null : null),
+    [events, openTask],
+  );
+  const selectedDateEvents = useMemo(
+    () => [...events].sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime()),
+    [events],
+  );
 
   return (
     <ThemeProvider theme={theme}>
@@ -463,14 +585,17 @@ export function MissionDashboard() {
                   </Typography>
                 </Box>
 
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={toggleTheme}
-                  startIcon={mode === "light" ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
-                >
-                  {mode === "light" ? "Switch to Dark" : "Switch to Light"}
-                </Button>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                  <NotificationControl />
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={toggleTheme}
+                    startIcon={mode === "light" ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
+                  >
+                    {mode === "light" ? "Switch to Dark" : "Switch to Light"}
+                  </Button>
+                </Stack>
               </Stack>
             </Paper>
 
@@ -496,14 +621,8 @@ export function MissionDashboard() {
                       <Typography variant="h6" fontWeight={600}>
                         Events For Selected Day
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        Quick view cards. Open each item for full session details.
-                      </Typography>
                     </Box>
                   </Stack>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 2 }}>
-                    Synced from FastAPI `GET /api/v1/events?operator=on&date=...`.
-                  </Typography>
                   <Box
                     sx={{
                       minHeight: 0,
@@ -528,7 +647,7 @@ export function MissionDashboard() {
                       <TaskList
                         tasks={tasks}
                         completedTaskIds={completedTaskIds}
-                        onToggleDone={toggleTaskDone}
+                        onToggleDone={(taskId) => void toggleTaskDone(taskId)}
                         onOpenDetails={setOpenTask}
                       />
                     )}
@@ -542,6 +661,7 @@ export function MissionDashboard() {
                     displayMonth={displayMonth}
                     selectedDate={selectedDate}
                     today={today}
+                    eventDateKeys={monthEventDateKeys}
                     onPreviousMonth={() => moveMonth(-1)}
                     onNextMonth={() => moveMonth(1)}
                     onSelectDate={setSelectedDate}
@@ -562,9 +682,103 @@ export function MissionDashboard() {
         }
       >
         <MenuItem onClick={handleOpenAddEventFromMenu}>Add event</MenuItem>
+        <MenuItem onClick={handleOpenEditEventsFromMenu}>Edit events</MenuItem>
       </Menu>
-      <Dialog open={isCreateEventOpen} onClose={() => setIsCreateEventOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add Event</DialogTitle>
+      <Dialog open={isDayEventsOpen} onClose={() => setIsDayEventsOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Events</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            <Typography variant="body2" color="text.secondary">
+              {new Intl.DateTimeFormat("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              }).format(selectedDate)}
+            </Typography>
+            {tasksLoading ? (
+              <Typography variant="body2" color="text.secondary">
+                Loading events...
+              </Typography>
+            ) : selectedDateEvents.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No scheduled events for this day.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {selectedDateEvents.map((event) => (
+                  <Paper key={event.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      justifyContent="space-between"
+                      alignItems={{ xs: "flex-start", sm: "center" }}
+                    >
+                      <Box>
+                        <Typography variant="subtitle2" fontWeight={600}>
+                          {event.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Intl.DateTimeFormat("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          }).format(new Date(event.date))}
+                          {" · "}
+                          {event.repeat}
+                        </Typography>
+                      </Box>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} width={{ xs: "100%", sm: "auto" }}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => {
+                            openEditEventModal(event);
+                            setIsDayEventsOpen(false);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          disabled={deletingEventId === event.id}
+                          onClick={() => {
+                            const confirmed = window.confirm(`Delete "${event.name}" permanently?`);
+                            if (!confirmed) {
+                              return;
+                            }
+                            void handleDeleteEvent(event.id);
+                          }}
+                        >
+                          {deletingEventId === event.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+            {deleteEventError && (
+              <Typography variant="body2" color="error.main">
+                {deleteEventError}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsDayEventsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={isCreateEventOpen}
+        onClose={() => {
+          setIsCreateEventOpen(false);
+          setEditingEventId(null);
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>{editingEventId === null ? "Add Event" : "Edit Event"}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
@@ -633,12 +847,18 @@ export function MissionDashboard() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setIsCreateEventOpen(false)} disabled={isCreatingEvent}>
+          <Button
+            onClick={() => {
+              setIsCreateEventOpen(false);
+              setEditingEventId(null);
+            }}
+            disabled={isCreatingEvent}
+          >
             Cancel
           </Button>
           <Button
             variant="contained"
-            onClick={handleCreateEvent}
+            onClick={handleSaveEvent}
             disabled={
               isCreatingEvent ||
               createEventForm.name.trim().length === 0 ||
@@ -646,7 +866,7 @@ export function MissionDashboard() {
               createEventForm.date.trim().length === 0
             }
           >
-            {isCreatingEvent ? "Creating..." : "Create Event"}
+            {isCreatingEvent ? (editingEventId === null ? "Creating..." : "Saving...") : editingEventId === null ? "Create Event" : "Save Changes"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -684,15 +904,27 @@ export function MissionDashboard() {
                     </Typography>
                   ))}
                 </Stack>
-                <Button
-                  variant={completedTaskIds.has(openTask.id) ? "contained" : "outlined"}
-                  color={completedTaskIds.has(openTask.id) ? "success" : "primary"}
-                  startIcon={<TaskAltRoundedIcon />}
-                  onClick={() => toggleTaskDone(openTask.id)}
-                  sx={{ alignSelf: "flex-start", mt: 0.8 }}
-                >
-                  {completedTaskIds.has(openTask.id) ? "Done" : "Mark done"}
-                </Button>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignSelf: "flex-start", mt: 0.8 }}>
+                  <Button
+                    variant={completedTaskIds.has(openTask.id) ? "contained" : "outlined"}
+                    color={completedTaskIds.has(openTask.id) ? "success" : "primary"}
+                    startIcon={<TaskAltRoundedIcon />}
+                    onClick={() => void toggleTaskDone(openTask.id)}
+                  >
+                    {completedTaskIds.has(openTask.id) ? "Done" : "Mark done"}
+                  </Button>
+                  {selectedEvent && (
+                    <Button
+                      variant="text"
+                      onClick={() => {
+                        openEditEventModal(selectedEvent);
+                        setOpenTask(null);
+                      }}
+                    >
+                      Edit event
+                    </Button>
+                  )}
+                </Stack>
               </Stack>
             </DialogContent>
           </>

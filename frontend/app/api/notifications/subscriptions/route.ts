@@ -7,20 +7,12 @@ function getBackendBaseUrl(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const date = request.nextUrl.searchParams.get("date");
-  if (!date) {
-    return NextResponse.json({ detail: "date query parameter is required." }, { status: 400 });
-  }
-  const operator = request.nextUrl.searchParams.get("operator") ?? "on";
-  const dateTo = request.nextUrl.searchParams.get("date_to");
-
   const backendBaseUrl = getBackendBaseUrl();
+  const upstreamUrl = new URL("/api/v1/notifications/subscriptions", backendBaseUrl);
 
-  const upstreamUrl = new URL("/api/v1/events", backendBaseUrl);
-  upstreamUrl.searchParams.set("date", date);
-  upstreamUrl.searchParams.set("operator", operator);
-  if (dateTo) {
-    upstreamUrl.searchParams.set("date_to", dateTo);
+  const clientId = request.nextUrl.searchParams.get("client_id");
+  if (clientId) {
+    upstreamUrl.searchParams.set("client_id", clientId);
   }
 
   const upstreamResponse = await fetch(upstreamUrl.toString(), { cache: "no-store" });
@@ -35,7 +27,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const backendBaseUrl = getBackendBaseUrl();
-  const upstreamUrl = new URL("/api/v1/events", backendBaseUrl);
+  const upstreamUrl = new URL("/api/v1/notifications/subscriptions", backendBaseUrl);
 
   const upstreamResponse = await fetch(upstreamUrl.toString(), {
     method: "POST",
@@ -45,6 +37,7 @@ export async function POST(request: NextRequest) {
   });
 
   const payload = await upstreamResponse.text();
+
   return new NextResponse(payload, {
     status: upstreamResponse.status,
     headers: { "content-type": upstreamResponse.headers.get("content-type") ?? "application/json" },

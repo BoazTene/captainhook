@@ -6,22 +6,9 @@ function getBackendBaseUrl(): string {
   return process.env.BACKEND_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_BACKEND_URL;
 }
 
-export async function GET(request: NextRequest) {
-  const date = request.nextUrl.searchParams.get("date");
-  if (!date) {
-    return NextResponse.json({ detail: "date query parameter is required." }, { status: 400 });
-  }
-  const operator = request.nextUrl.searchParams.get("operator") ?? "on";
-  const dateTo = request.nextUrl.searchParams.get("date_to");
-
+export async function GET() {
   const backendBaseUrl = getBackendBaseUrl();
-
-  const upstreamUrl = new URL("/api/v1/events", backendBaseUrl);
-  upstreamUrl.searchParams.set("date", date);
-  upstreamUrl.searchParams.set("operator", operator);
-  if (dateTo) {
-    upstreamUrl.searchParams.set("date_to", dateTo);
-  }
+  const upstreamUrl = new URL("/api/v1/notifications/settings", backendBaseUrl);
 
   const upstreamResponse = await fetch(upstreamUrl.toString(), { cache: "no-store" });
   const payload = await upstreamResponse.text();
@@ -32,19 +19,19 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST(request: NextRequest) {
+export async function PATCH(request: NextRequest) {
   const body = await request.text();
   const backendBaseUrl = getBackendBaseUrl();
-  const upstreamUrl = new URL("/api/v1/events", backendBaseUrl);
+  const upstreamUrl = new URL("/api/v1/notifications/settings", backendBaseUrl);
 
   const upstreamResponse = await fetch(upstreamUrl.toString(), {
-    method: "POST",
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body,
     cache: "no-store",
   });
-
   const payload = await upstreamResponse.text();
+
   return new NextResponse(payload, {
     status: upstreamResponse.status,
     headers: { "content-type": upstreamResponse.headers.get("content-type") ?? "application/json" },
