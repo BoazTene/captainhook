@@ -22,4 +22,9 @@ class EventRead(Event):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    completed_at: datetime | None
     created_at: datetime
+
+
+class EventCompletionUpdate(BaseModel):
+    completed: bool

@@ -15,6 +15,7 @@ class EventModel(Base):
     plugin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     repeat: Mapped[str] = mapped_column(String(20), nullable=False, default="none")
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
