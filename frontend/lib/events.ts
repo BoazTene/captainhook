@@ -6,6 +6,7 @@ export interface ApiEvent {
   description: string;
   plugin: string | null;
   date: string;
+  original_date: string | null;
   repeat: "none" | "daily" | "weekly" | "monthly" | "yearly";
   completed_at: string | null;
   created_at: string;
