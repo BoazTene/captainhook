@@ -1,12 +1,14 @@
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+from app.core.config import settings
+
 
 class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine("sqlite:///./captainhook.db", future=True)
+engine = create_engine(settings.DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
