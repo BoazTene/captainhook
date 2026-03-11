@@ -17,6 +17,7 @@ import {
   GlobalStyles,
   Grid,
   InputLabel,
+  Link,
   Menu,
   MenuItem,
   Paper,
@@ -28,7 +29,7 @@ import {
   type PaletteMode,
 } from "@mui/material";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TodayTask } from "@/lib/today-tasks";
 import { mapEventsToTasks, type ApiEvent } from "@/lib/events";
 import { CalendarView } from "./CalendarView";
@@ -62,6 +63,22 @@ interface DateMenuState {
   mouseX: number;
   mouseY: number;
   date: Date;
+}
+
+const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
+
+function renderTextWithLinks(text: string): ReactNode[] {
+  return text.split(URL_PATTERN).filter(Boolean).map((part, index) => {
+    if (/^https?:\/\/[^\s]+$/.test(part)) {
+      return (
+        <Link key={`${part}-${index}`} href={part} target="_blank" rel="noopener noreferrer">
+          {part}
+        </Link>
+      );
+    }
+
+    return part;
+  });
 }
 
 function toDateTimeLocalValue(date: Date): string {
@@ -893,14 +910,14 @@ export function MissionDashboard() {
                     {modalDetailsError}
                   </Typography>
                 ) : null}
-                <Typography variant="body1">{modalDetails?.summary ?? openTask.summary}</Typography>
+                <Typography variant="body1">{renderTextWithLinks(modalDetails?.summary ?? openTask.summary)}</Typography>
                 <Typography variant="subtitle2" color="text.secondary">
                   Further details
                 </Typography>
                 <Stack spacing={0.8}>
                   {(modalDetails?.fullSession ?? openTask.fullSession).map((step, index) => (
                     <Typography key={`${openTask.id}-step-${index}`} variant="body2">
-                      {index + 1}. {step}
+                      {index + 1}. {renderTextWithLinks(step)}
                     </Typography>
                   ))}
                 </Stack>

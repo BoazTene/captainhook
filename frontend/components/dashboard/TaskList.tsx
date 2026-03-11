@@ -1,6 +1,7 @@
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
-import { Button, Chip, Paper, Stack, Typography } from "@mui/material";
+import { Button, Chip, Link, Paper, Stack, Typography } from "@mui/material";
+import type { ReactNode } from "react";
 import type { TodayTask } from "@/lib/today-tasks";
 
 interface TaskListProps {
@@ -8,6 +9,22 @@ interface TaskListProps {
   completedTaskIds?: Set<string>;
   onToggleDone?: (taskId: string) => void;
   onOpenDetails?: (task: TodayTask) => void;
+}
+
+const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
+
+function renderTextWithLinks(text: string): ReactNode[] {
+  return text.split(URL_PATTERN).filter(Boolean).map((part, index) => {
+    if (/^https?:\/\/[^\s]+$/.test(part)) {
+      return (
+        <Link key={`${part}-${index}`} href={part} target="_blank" rel="noopener noreferrer">
+          {part}
+        </Link>
+      );
+    }
+
+    return part;
+  });
 }
 
 export function TaskList({ tasks, completedTaskIds, onToggleDone, onOpenDetails }: TaskListProps) {
@@ -34,7 +51,7 @@ export function TaskList({ tasks, completedTaskIds, onToggleDone, onOpenDetails 
                 <Stack spacing={0.5} sx={{ pl: 1 }}>
                   {task.details.slice(0, 2).map((detail) => (
                     <Typography key={detail} variant="caption" color="text.secondary">
-                      • {detail}
+                      • {renderTextWithLinks(detail)}
                     </Typography>
                   ))}
                 </Stack>
