@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "next dev --hostname 0.0.0.0 --experimental-https",
+    "dev:https:cert": "next dev --hostname 0.0.0.0 --experimental-https --experimental-https-key certs/dev.key --experimental-https-cert certs/dev.crt",
+    "tunnel:ngrok": "bash ./scripts/start-ngrok.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
