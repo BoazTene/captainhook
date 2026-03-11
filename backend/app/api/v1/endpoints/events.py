@@ -40,7 +40,11 @@ def set_event_completion_endpoint(
     event_id: int,
     payload: EventCompletionUpdate,
 ) -> EventRead:
-    return set_event_completion(event_id=event_id, completed=payload.completed)
+    return set_event_completion(
+        event_id=event_id,
+        completed=payload.completed,
+        occurrence_date=payload.occurrence_date,
+    )
 
 
 @router.get("/{event_id}/plugin", response_model=EventPluginResponse)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from fastapi import HTTPException
@@ -10,10 +10,10 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models.event import EventModel
 from app.models.notification_settings import NotificationSettingsModel
 from app.models.push_subscription import PushSubscriptionModel
 from app.schemas.notification import NotificationSettingsUpdate, PushSubscriptionCreate
+from app.services.event_service import list_events_for_day
 
 logger = logging.getLogger(__name__)
 
@@ -154,23 +154,7 @@ def _get_local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def _get_day_bounds(local_now: datetime) -> tuple[datetime, datetime]:
-    day_start_local = datetime.combine(local_now.date(), time.min, tzinfo=local_now.tzinfo)
-    day_end_local = day_start_local + timedelta(days=1)
-    return (day_start_local.astimezone(timezone.utc), day_end_local.astimezone(timezone.utc))
-
-
-def _get_todays_events(db, local_now: datetime) -> list[EventModel]:
-    day_start_utc, day_end_utc = _get_day_bounds(local_now)
-    stmt = (
-        select(EventModel)
-        .where(EventModel.date >= day_start_utc, EventModel.date < day_end_utc)
-        .order_by(EventModel.date.asc(), EventModel.id.asc())
-    )
-    return list(db.scalars(stmt).all())
-
-
-def _format_task_names(events: list[EventModel]) -> str:
+def _format_task_names(events) -> str:
     names = [event.name.strip() for event in events if event.name.strip()]
     if not names:
         return "your tasks"
@@ -206,7 +190,7 @@ def _send_payload_to_active_subscriptions(payload: dict[str, Any]) -> tuple[int,
     return (sent, failed)
 
 
-def _build_morning_payload(local_now: datetime, events: list[EventModel]) -> dict[str, Any]:
+def _build_morning_payload(local_now: datetime, events) -> dict[str, Any]:
     return {
         "title": "Reminder to do your tasks today",
         "body": f"Today's tasks: {_format_task_names(events)}.",
@@ -216,7 +200,7 @@ def _build_morning_payload(local_now: datetime, events: list[EventModel]) -> dic
     }
 
 
-def _build_follow_up_payload(local_now: datetime, events: list[EventModel]) -> dict[str, Any]:
+def _build_follow_up_payload(local_now: datetime, events) -> dict[str, Any]:
     return {
         "title": "Tasks still pending today",
         "body": f"You still have: {_format_task_names(events)}.",
@@ -245,7 +229,7 @@ def send_scheduled_notifications() -> tuple[int, int]:
 
     with SessionLocal() as db:
         settings_row = _get_or_create_notification_settings(db)
-        todays_events = _get_todays_events(db, local_now)
+        todays_events = list_events_for_day(local_now.date())
         unfinished_events = [event for event in todays_events if event.completed_at is None]
 
         if local_now.hour == settings_row.morning_reminder_hour:

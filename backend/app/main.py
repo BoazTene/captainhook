@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 import app.models.event  # noqa: F401
+import app.models.event_completion  # noqa: F401
 import app.models.notification_settings  # noqa: F401
 import app.models.push_subscription  # noqa: F401
 from app.api.v1.router import api_router

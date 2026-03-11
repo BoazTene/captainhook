@@ -216,7 +216,7 @@ export function MissionDashboard() {
       const response = await fetch(`/api/events/${taskId}/completion`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ completed: !isCompleted }),
+        body: JSON.stringify({ completed: !isCompleted, occurrence_date: toLocalDateKey(selectedDate) }),
       });
 
       if (!response.ok) {
@@ -258,7 +258,7 @@ export function MissionDashboard() {
       name: event.name,
       description: event.description,
       plugin: event.plugin ?? "none",
-      date: toDateTimeLocalValue(new Date(event.date)),
+      date: toDateTimeLocalValue(new Date(event.original_date ?? event.date)),
       repeat: event.repeat,
     });
     setIsCreateEventOpen(true);
