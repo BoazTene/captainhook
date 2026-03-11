@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: sqlite:////data/captainhook.db
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_VAPID_CLAIMS_SUBJECT: ${WEB_PUSH_VAPID_CLAIMS_SUBJECT:-mailto:captainhook@example.com}
+      WEB_PUSH_DEFAULT_URL: ${WEB_PUSH_DEFAULT_URL:-/}
+      WEB_PUSH_DEFAULT_ICON: ${WEB_PUSH_DEFAULT_ICON:-}
+    volumes:
+      - captainhook_data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      BACKEND_API_BASE_URL: http://backend:8000
+      NEXT_PUBLIC_API_BASE_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  captainhook_data:
